@@ -278,6 +278,34 @@ class InferenceManager:
             self.worker_thread.join(timeout=5)
         if self.robot and self.robot.is_connected:
             self.robot.disconnect()
+            
+    def reset_robot(self):
+        """Reset the robot to its initial state"""
+        try:
+            if self.robot and self.robot.is_connected:
+                # Clear any pending tasks
+                with self.task_lock:
+                    # Empty the task queue
+                    while not self.task_queue.empty():
+                        self.task_queue.get()
+                    
+                    # Reset task status
+                    self.current_task_status = TaskStatus(
+                        status=InferenceStatus.COMPLETED,
+                        progress=100,
+                        result={"message": "Robot reset successful"},
+                    )
+                
+                # Reset the robot to home position or safe state
+                self.robot.reset()
+                self.logger.info("Robot reset successful")
+                return {"status": "success", "message": "Robot reset successful"}
+            else:
+                self.logger.warning("Cannot reset: Robot not connected")
+                return {"status": "error", "message": "Robot not connected"}
+        except Exception as e:
+            self.logger.error(f"Error resetting robot: {str(e)}")
+            return {"status": "error", "message": f"Failed to reset robot: {str(e)}"}
 
 # FastAPI application
 app = FastAPI(title="Robot Control API")
@@ -361,6 +389,19 @@ async def get_available_policies():
         available_policies=[PolicyName(p) for p in policies],
         default_policy=server_config.default_task
     )
+
+@app.post("/robot/reset")
+async def reset_robot():
+    """Reset the robot to its initial state
+    
+    This endpoint stops any ongoing tasks, clears the task queue,
+    and returns the robot to a safe position.
+    
+    Returns:
+        Dict with status and message
+    """
+    result = inference_manager.reset_robot()
+    return result
 
 def main():
     # Configure logging
