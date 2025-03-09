@@ -1,0 +1,24 @@
+{
+  "robot_type": "so100",
+  "policies": {
+    "pick": {
+      "path": "lerobot/outputs/train/act_aloha_insertion/checkpoints/001000/pretrained_model",
+      "device": "cuda",
+      "use_amp": false,
+      "type": "act",
+      "control_time_s": 10.0,
+      "fps": 30
+    },
+    "transfer": {
+      "path": "lerobot/outputs/train/act_aloha_insertion/checkpoints/002000/pretrained_model",
+      "device": "cpu",
+      "use_amp": false,
+      "type": "act",
+      "control_time_s": 10.0,
+      "fps": 30
+    }
+  },
+  "default_task": "pick",
+  "control_time_s": 10.0,
+  "display_cameras": false
+}
