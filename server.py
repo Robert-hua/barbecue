@@ -19,6 +19,7 @@ from lerobot.common.robot_devices.robots.utils import make_robot, Robot
 from lerobot.common.robot_devices.control_utils import control_loop, predict_action
 from lerobot.common.robot_devices.control_configs import ControlPipelineConfig
 from lerobot.common.policies.pretrained import PreTrainedPolicy, PreTrainedConfig
+from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
 
 class InferenceStatus(str, Enum):
     PENDING = "pending"
@@ -29,15 +30,27 @@ class InferenceStatus(str, Enum):
 class PolicyName(str, Enum):
     PICK = "pick"
     TRANSFER = "transfer"
-    PLACE = "place" 
+    PLACE = "place"
+    
+    @classmethod
+    def get_default_control_time(cls, policy_name):
+        """Get default control time for a policy"""
+        defaults = {
+            cls.PICK: 15.0,      # Default 15s for pick operations
+            cls.TRANSFER: 20.0,  # Default 20s for transfer operations
+            cls.PLACE: 10.0      # Default 10s for place operations
+        }
+        return defaults.get(policy_name, 15.0)  # General default is 15s
 
 class PolicyConfig(BaseModel):
     """Configuration for a policy"""
     path: str
+    metadata_path: str
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     use_amp: bool = True
     type: str = "act"
     fps: Optional[int] = 30
+    control_time_s: Optional[float] = None
 
 class ServerConfig(BaseModel):
     """Server configuration"""
@@ -91,31 +104,32 @@ class InferenceManager:
         
     def initialize(self):
         """Initialize the robot and load policies"""
-        # try:
-            # Initialize robot
-        self.robot = make_robot(self.config.robot_type)
-        
-        # Load policies
-        for policy_name, policy_config in self.config.policies.items():
-            self.load_policy(policy_name, policy_config)
+        try:
+                # Initialize robot
+            self.robot = make_robot(self.config.robot_type)
             
-        # Start worker thread
-        self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
-        self.worker_thread.start()
-        
-        self.logger.info(f"Initialized InferenceManager with robot type {self.config.robot_type}")
-        self.logger.info(f"Loaded policies: {list(self.policies.keys())}")
-        return True
-        # except Exception as e:
-        #     self.logger.error(f"Failed to initialize InferenceManager: {str(e)}")
-        #     return False
+            # Load policies
+            for policy_name, policy_config in self.config.policies.items():
+                self.load_policy(policy_name, policy_config)
+                
+            # Start worker thread
+            self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
+            self.worker_thread.start()
+            
+            self.logger.info(f"Initialized InferenceManager with robot type {self.config.robot_type}")
+            self.logger.info(f"Loaded policies: {list(self.policies.keys())}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to initialize InferenceManager: {str(e)}")
+            return False
     
     def load_policy(self, policy_name: str, policy_config: PolicyConfig):
         """Load a policy from the given configuration"""
         try:
             self.logger.info(f"Loading policy {policy_name} from {policy_config.path}")
             config = PreTrainedConfig.from_pretrained(policy_config.path)
-            policy = make_policy(config)
+            ds_meta = LeRobotDatasetMetadata(policy_config.metadata_path)
+            policy = make_policy(config, ds_meta)
             policy.eval()
             
             self.policies[policy_name] = {
@@ -145,10 +159,25 @@ class InferenceManager:
                 progress=0
             )
             
+            # Get appropriate control time (in order of precedence):
+            # 1. Request-specific control_time_s if provided
+            # 2. Policy-specific control_time_s from config if available
+            # 3. Policy-specific default based on task type
+            # 4. Server default control_time_s
+            # 5. General default (15s)
+            policy_config = self.policies[request.task_name.value]["config"]
+            policy_control_time = policy_config.control_time_s
+            
+            control_time = (request.control_time_s or 
+                           policy_control_time or 
+                           PolicyName.get_default_control_time(request.task_name) or 
+                           self.config.control_time_s or 
+                           15.0)
+            
             # Add task to queue
             self.task_queue.put({
                 "task_name": request.task_name,
-                "control_time_s": request.control_time_s or self.config.control_time_s,
+                "control_time_s": control_time,
                 "single_task": request.single_task
             })
             

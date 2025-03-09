@@ -1,1 +1,1 @@
-python lerobot/scripts/eval.py     --policy.path=outputs/train/act_aloha_insertion/checkpoints/002000/pretrained_model/     --env.type=aloha     --eval.batch_size=1     --eval.n_episodes=10
+python lerobot/scripts/eval.py     --policy.path=outputs/train/act_aloha_insertion/checkpoints/004000/pretrained_model/     --env.type=aloha     --eval.batch_size=1     --eval.n_episodes=10
